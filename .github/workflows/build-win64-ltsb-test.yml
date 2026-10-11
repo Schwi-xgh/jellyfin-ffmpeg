@@ -38,15 +38,48 @@ jobs:
           ref: v8.1.3-1
           persist-credentials: false
 
-      - name: Use SVT-AV1 4.1.0
+      - name: Patch SVT-AV1 4.2.0 for Windows LTSB 2016
         run: |
           set -euo pipefail
-          pkg="msys2/PKGBUILD/40-mingw-w64-svt-av1/PKGBUILD"
-          grep -q '^pkgver=4.2.0$' "$pkg"
-          sed -i 's/^pkgver=4.2.0$/pkgver=4.1.0/' "$pkg"
-          grep -q '^pkgver=4.1.0$' "$pkg"
-          git diff -- "$pkg"
+          pkgdir="msys2/PKGBUILD/40-mingw-w64-svt-av1"
+          pkg="$pkgdir/PKGBUILD"
 
+          grep -q '^pkgver=4.2.0$' "$pkg"
+
+          cat > "$pkgdir/ltsb-thread-name.patch" <<'PATCH'
+          --- a/Source/Lib/Codec/svt_threads.c
+          +++ b/Source/Lib/Codec/svt_threads.c
+          @@ -211,3 +211,14 @@
+                   if (MultiByteToWideChar(CP_UTF8, 0, truncated, -1, wname, (int)(sizeof(wname) / sizeof(wname[0]))) > 0) {
+          -            (void)SetThreadDescription((HANDLE)thread_handle, wname);
+          +            typedef HRESULT(WINAPI * SvtSetThreadDescriptionFn)(HANDLE, PCWSTR);
+          +            HMODULE module = GetModuleHandleW(L"KernelBase.dll");
+          +            SvtSetThreadDescriptionFn set_description = NULL;
+          +            if (module)
+          +                set_description = (SvtSetThreadDescriptionFn)GetProcAddress(module, "SetThreadDescription");
+          +            if (!set_description) {
+          +                module = GetModuleHandleW(L"Kernel32.dll");
+          +                if (module)
+          +                    set_description = (SvtSetThreadDescriptionFn)GetProcAddress(module, "SetThreadDescription");
+          +            }
+          +            if (set_description)
+          +                (void)set_description((HANDLE)thread_handle, wname);
+                   }
+          PATCH
+
+          # Apply the patch after makepkg extracts the SVT-AV1 source.
+          # This prepare() replaces the original prepare() function.
+          cat >> "$pkg" <<'PREPARE'
+
+          prepare() {
+            cd "${srcdir}/${_realname}-v${pkgver}"
+            patch --batch --fuzz=0 -p1 -i "${startdir}/ltsb-thread-name.patch"
+          }
+          PREPARE
+
+          git diff -- "$pkg"
+          cat "$pkgdir/ltsb-thread-name.patch"
+          
       - name: Fix missing exception header in zimg
         run: |
           set -euo pipefail
@@ -73,6 +106,6 @@ jobs:
       - name: Upload compiled files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ffmpeg-8.1.3-win64-svt4.1.0-test
+          name: ffmpeg-8.1.3-win64-svt4.2.0-ltsb-fix
           path: ./msys2/artifacts/*.zip
           if-no-files-found: error
