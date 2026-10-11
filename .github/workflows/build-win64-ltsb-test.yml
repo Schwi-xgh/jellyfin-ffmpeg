@@ -47,6 +47,17 @@ jobs:
           grep -q '^pkgver=4.1.0$' "$pkg"
           git diff -- "$pkg"
 
+      - name: Fix missing exception header in zimg
+        run: |
+          set -euo pipefail
+          pkg="msys2/PKGBUILD/40-mingw-w64-zimg/PKGBUILD"
+
+          grep -q '^[[:space:]]*\./autogen\.sh' "$pkg"
+
+          sed -i '/^[[:space:]]*\.\/autogen\.sh/i\  sed -i "1i#include <exception>" src/zimg/api/zimg.cpp' "$pkg"
+
+          git diff -- "$pkg"
+          
       - name: Prepare build directory
         run: mkdir -p /clang64/ffbuild
 
