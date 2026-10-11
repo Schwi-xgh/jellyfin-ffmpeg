@@ -1,0 +1,67 @@
+name: Build FFmpeg 8.1.3 - LTSB compatibility test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Set up MSYS2 CLANG64
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
+        with:
+          update: true
+          msystem: CLANG64
+          install: >-
+            git
+            curl
+            wget
+            zip
+            mingw-w64-clang-x86_64-toolchain
+            quilt
+            diffstat
+            mingw-w64-clang-x86_64-nasm
+
+      - name: Download official v8.1.3-1 source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: jellyfin/jellyfin-ffmpeg
+          ref: v8.1.3-1
+          persist-credentials: false
+
+      - name: Use SVT-AV1 4.1.0
+        run: |
+          set -euo pipefail
+          pkg="msys2/PKGBUILD/40-mingw-w64-svt-av1/PKGBUILD"
+          grep -q '^pkgver=4.2.0$' "$pkg"
+          sed -i 's/^pkgver=4.2.0$/pkgver=4.1.0/' "$pkg"
+          grep -q '^pkgver=4.1.0$' "$pkg"
+          git diff -- "$pkg"
+
+      - name: Prepare build directory
+        run: mkdir -p /clang64/ffbuild
+
+      - name: Build FFmpeg and FFprobe
+        run: ./msys2/build.sh
+
+      - name: Test executables on build machine
+        run: |
+          set -euo pipefail
+          ./msys2/ffmpeg.exe -version
+          ./msys2/ffprobe.exe -version
+
+      - name: Upload compiled files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ffmpeg-8.1.3-win64-svt4.1.0-test
+          path: ./msys2/artifacts/*.zip
+          if-no-files-found: error
